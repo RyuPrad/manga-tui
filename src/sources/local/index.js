@@ -5,9 +5,9 @@ import path from 'node:path';
 import { makeManga, makeChapter, globalKey } from '../../domain/shape.js';
 import { envelope, paginate } from '../../lib/envelope.js';
 import { naturalSort, naturalCompare } from '../../lib/natsort.js';
-import { NotFoundError, UnsupportedError } from '../../lib/AppError.js';
+import { NotFoundError } from '../../lib/AppError.js';
 import { getConfig } from '../../state/store.js';
-import { listArchiveImages, readArchiveEntry, isArchive, isRar } from './archive.js';
+import { listArchiveImages, readArchiveEntry, isArchive } from './archive.js';
 
 export const id = 'local';
 export const label = 'Local library';
@@ -144,12 +144,8 @@ export async function getPages(chapterId) {
     );
     return files.map((name, index) => ({ index, kind: 'file', file: path.join(ch.dir, name) }));
   }
-  if (isRar(ch.file)) {
-    throw new UnsupportedError('CBR/RAR not supported yet — convert to .cbz or install node-unrar-js.');
-  }
-  return listArchiveImages(ch.file).map((entry, index) => ({
-    index, kind: 'archive', file: ch.file, entry,
-  }));
+  const names = await listArchiveImages(ch.file);
+  return names.map((entry, index) => ({ index, kind: 'archive', file: ch.file, entry }));
 }
 
 export async function loadPageBuffer(page) {

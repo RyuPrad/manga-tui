@@ -83,8 +83,8 @@ My Library/
   One Shot.cbz             # a standalone .cbz = a single-chapter manga
 ```
 
-Pages are ordered naturally (`2` before `10`). `.cbr`/`.rar` is detected but not yet
-extracted (convert to `.cbz`).
+Pages are ordered naturally (`2` before `10`). Both `.cbz`/`.zip` and `.cbr`/`.rar`
+archives are supported (RAR via the WASM `node-unrar-js`, no system binary needed).
 
 ## Where state lives
 
@@ -127,7 +127,6 @@ directly.
 
 ## Roadmap
 
-- `.cbr`/`.rar` extraction (`node-unrar-js`)
 - True sixel/kitty fullscreen page view (beyond the standalone `render` command)
 - On-disk page cache for offline re-reads of MangaDex chapters
 - Tests (Vitest + ink-testing-library) and CI
