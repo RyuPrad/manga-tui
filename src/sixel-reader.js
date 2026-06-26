@@ -1,7 +1,7 @@
 import { getSource } from './sources/index.js';
 import { setProgress } from './state/store.js';
 import { chapterLabel } from './domain/shape.js';
-import { encodePixels, encodePixelsWindow } from './render/sixel.js';
+import { encodePixels, prepareImage } from './render/sixel.js';
 import { logger } from './lib/logger.js';
 
 const ESC = '\x1b';
@@ -50,17 +50,17 @@ export async function runViewer({ sourceId, manga, chapters, chapterIndex, start
       if (!pages.length) throw new Error('This chapter has no hosted pages.');
       const buf = await source.loadPageBuffer(pages[pi]);
 
-      let sixel;
-      if (fitWidth) {
-        const r = await encodePixelsWindow(buf, { cols, rows: imgRows, scroll, format });
-        sixel = r.sixel;
-        maxScroll = r.maxScroll;
-        scroll = r.scroll;
-      } else {
-        sixel = await encodePixels(buf, { cols, rows: imgRows, format });
-        maxScroll = 0;
-        scroll = 0;
-      }
+      const prepared = await prepareImage(buf, {
+        mode: fitWidth ? 'width' : 'fit',
+        cols,
+        rows: imgRows,
+        scroll,
+        cellW: caps.cellW,
+        cellH: caps.cellH,
+      });
+      maxScroll = prepared.maxScroll;
+      scroll = prepared.scroll;
+      const sixel = await encodePixels(prepared.buffer, { format });
 
       stdout.write(`${ESC}[2J${ESC}[H`); // clear + cursor home
       stdout.write(sixel);
@@ -107,8 +107,11 @@ export async function runViewer({ sourceId, manga, chapters, chapterIndex, start
   // keep the process alive — it would exit the moment the first page is drawn.
   // A ref'd timer holds the event loop open until we're done.
   const keepAlive = setInterval(() => {}, 1 << 30);
+  // Re-render on terminal resize so the page tracks the window size.
+  const onResize = () => { if (!busy) draw(); };
   try {
     await draw();
+    stdout.on('resize', onResize);
 
     await new Promise((resolve) => {
       onKey = async (data) => {
@@ -146,8 +149,8 @@ export async function runViewer({ sourceId, manga, chapters, chapterIndex, start
       };
 
       // Enter raw mode *after* the first draw — Ink's unmount restores cooked
-      // mode on a deferred tick, which would otherwise clobber an earlier call
-      // and leave stdin line-buffered (so single keypresses never arrive).
+      // mode on a deferred tick, which would otherwise leave stdin line-buffered
+      // (so single keypresses never arrive).
       stdin.removeAllListeners('data');
       try { stdin.setRawMode(true); } catch { /* ignore */ }
       stdin.resume();
@@ -156,6 +159,7 @@ export async function runViewer({ sourceId, manga, chapters, chapterIndex, start
     });
   } finally {
     clearInterval(keepAlive);
+    stdout.removeListener('resize', onResize);
     if (onKey) stdin.removeListener('data', onKey);
     try { stdin.setRawMode(prevRaw); } catch { /* ignore */ }
     stdout.write(`${ESC}[2J${ESC}[H${ESC}[0m`);

@@ -5,42 +5,57 @@ import { withTempImage } from './chafa.js';
 
 const execFileAsync = promisify(execFile);
 
-// chafa's default font ratio is 1:2, i.e. a cell is ~2x taller than wide. We use
-// the same assumption to map image pixels ↔ display cells for the crop math.
-const CELL_ASPECT = 2;
+// Fallback cell pixel size when the terminal didn't report one.
+const DEFAULT_CELL_W = 10;
+const DEFAULT_CELL_H = 20;
 
-// Encode an image buffer to a sixel/kitty escape sequence sized to cols×rows
-// CELLS. We pass --format explicitly so chafa emits pixels even though stdout is
-// captured (it can't probe the terminal through a pipe). Returns raw bytes.
-export async function encodePixels(buffer, { cols, rows, format = 'sixel' }) {
+// Encode an already-correctly-sized image to sixel at its NATIVE pixel
+// resolution. --exact-size + font-ratio 1/1 makes chafa emit ~1 image px → 1
+// sixel px, so the displayed size is exactly what we sized the image to — no
+// dependence on chafa guessing the terminal's cell size through a pipe.
+export async function encodePixels(buffer, { format = 'sixel' } = {}) {
   const { stdout } = await withTempImage(buffer, (file) =>
     execFileAsync(
       'chafa',
-      ['--format', format, '--size', `${cols}x${rows}`, '--animate', 'off', file],
+      ['--format', format, '--exact-size', 'on', '--font-ratio', '1/1', '--animate', 'off', file],
       { maxBuffer: 256 * 1024 * 1024, encoding: 'buffer' },
     ),
   );
-  return stdout; // Buffer
+  return stdout; // Buffer of sixel/kitty bytes
 }
 
-// Full-width view: render the page at the full column width and show a vertical
-// window of `rows` cells starting at cell `scroll`, by cropping the source image
-// to that window first. This keeps full horizontal resolution while panning a
-// tall page. Returns { sixel, maxScroll, scroll } (scroll clamped to range).
-export async function encodePixelsWindow(buffer, { cols, rows, scroll, format = 'sixel' }) {
-  const meta = await sharp(buffer).metadata();
-  const width = meta.width || 1;
-  const height = meta.height || 1;
+// Resize/crop a page to the exact viewport pixel rectangle.
+//   mode 'fit'   → whole page fits inside cols×rows cells
+//   mode 'width' → full terminal width, vertical window at cell offset `scroll`
+// Returns { buffer, maxScroll, scroll } (scroll clamped to range).
+export async function prepareImage(buffer, { mode, cols, rows, scroll = 0, cellW, cellH }) {
+  const cw = cellW || DEFAULT_CELL_W;
+  const ch = cellH || DEFAULT_CELL_H;
+  const viewW = Math.max(1, Math.round(cols * cw));
+  const viewH = Math.max(1, Math.round(rows * ch));
 
-  const pxPerCellRow = (CELL_ASPECT * width) / cols; // source px per displayed cell-row
-  const fullCellRows = Math.max(1, Math.round(height / pxPerCellRow));
-  const maxScroll = Math.max(0, fullCellRows - rows);
+  if (mode === 'fit') {
+    const buffer2 = await sharp(buffer)
+      .resize({ width: viewW, height: viewH, fit: 'inside', withoutEnlargement: false })
+      .png()
+      .toBuffer();
+    return { buffer: buffer2, maxScroll: 0, scroll: 0 };
+  }
+
+  // mode 'width': scale to full width, then extract a vertical window.
+  const widthScaled = await sharp(buffer).resize({ width: viewW }).png().toBuffer();
+  const meta = await sharp(widthScaled).metadata();
+  const scaledH = meta.height || viewH;
+
+  const maxScrollPx = Math.max(0, scaledH - viewH);
+  const maxScroll = Math.ceil(maxScrollPx / ch);
   const clamped = Math.max(0, Math.min(scroll, maxScroll));
+  const top = Math.min(maxScrollPx, clamped * ch);
+  const cropH = Math.max(1, Math.min(viewH, scaledH - top));
 
-  const top = Math.min(height - 1, Math.round(clamped * pxPerCellRow));
-  const cropH = Math.max(1, Math.min(height - top, Math.round(rows * pxPerCellRow)));
-
-  const cropped = await sharp(buffer).extract({ left: 0, top, width, height: cropH }).toBuffer();
-  const sixel = await encodePixels(cropped, { cols, rows, format });
-  return { sixel, maxScroll, scroll: clamped };
+  const buffer2 = await sharp(widthScaled)
+    .extract({ left: 0, top: Math.round(top), width: viewW, height: Math.round(cropH) })
+    .png()
+    .toBuffer();
+  return { buffer: buffer2, maxScroll, scroll: clamped };
 }

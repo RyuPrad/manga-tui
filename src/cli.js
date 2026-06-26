@@ -38,6 +38,9 @@ async function doctor() {
   if (probe.queried) {
     console.log(`  kitty graphics:   ${probe.kitty}  (probed)`);
     console.log(`  sixel:            ${probe.sixel}  (probed)`);
+    if (probe.cellW || probe.cellH) {
+      console.log(`  cell size:        ${probe.cellW ?? '?'}x${probe.cellH ?? '?'} px`);
+    }
   } else {
     console.log(`  kitty graphics:   ${caps.kitty}  (env guess — run in a real terminal to probe)`);
     console.log(`  sixel:            ${caps.sixel}  (env guess — run in a real terminal to probe)`);

@@ -61,7 +61,9 @@ export const RENDERER_CYCLE = ['auto', 'halfblock', 'chafa'];
 // the kitty graphics protocol is available. Needs a real TTY on both ends.
 export async function probeTerminal({ timeoutMs = 350 } = {}) {
   const { stdin, stdout } = process;
-  if (!stdout.isTTY || !stdin.isTTY) return { queried: false, sixel: false, kitty: false };
+  if (!stdout.isTTY || !stdin.isTTY) {
+    return { queried: false, sixel: false, kitty: false, cellW: null, cellH: null };
+  }
 
   return new Promise((resolve) => {
     let buf = '';
@@ -71,19 +73,40 @@ export async function probeTerminal({ timeoutMs = 350 } = {}) {
     try { stdin.setRawMode(true); } catch { /* ignore */ }
     stdin.resume();
     stdin.on('data', onData);
-    stdout.write('\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c');
+    // kitty support · cell size (16t) · text-area px (14t) · text-area chars
+    // (18t) · primary DA. Replies are collected together over the timeout.
+    stdout.write('\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[16t\x1b[14t\x1b[18t\x1b[c');
 
     setTimeout(() => {
       stdin.removeListener('data', onData);
       try { stdin.setRawMode(prevRaw); } catch { /* ignore */ }
       stdin.pause();
-      // Matching raw terminal escape replies — control chars are intentional.
-      // eslint-disable-next-line no-control-regex
+      /* eslint-disable no-control-regex */ // matching raw terminal escape replies
       const kitty = /\x1b_G[^\x1b]*;OK/.test(buf);
-      // eslint-disable-next-line no-control-regex
       const da = buf.match(/\x1b\[\?([0-9;]+)c/);
+      const cell = buf.match(/\x1b\[6;(\d+);(\d+)t/);   // CSI 6 ; cellH ; cellW t
+      const areaPx = buf.match(/\x1b\[4;(\d+);(\d+)t/); // CSI 4 ; areaH ; areaW t (px)
+      const areaCh = buf.match(/\x1b\[8;(\d+);(\d+)t/); // CSI 8 ; rows ; cols t
+      /* eslint-enable no-control-regex */
+
       const sixel = da ? da[1].split(';').includes('4') : false;
-      resolve({ queried: true, sixel, kitty });
+      let cellW = null;
+      let cellH = null;
+      if (cell) {
+        cellH = Number(cell[1]);
+        cellW = Number(cell[2]);
+      } else if (areaPx && areaCh) {
+        const cols = Number(areaCh[2]);
+        const rows = Number(areaCh[1]);
+        if (cols > 0 && rows > 0) {
+          cellW = Number(areaPx[2]) / cols;
+          cellH = Number(areaPx[1]) / rows;
+        }
+      }
+      if (!(cellW > 2 && cellW < 64)) cellW = null; // ignore absurd values
+      if (!(cellH > 2 && cellH < 96)) cellH = null;
+
+      resolve({ queried: true, sixel, kitty, cellW, cellH });
     }, timeoutMs);
   });
 }
