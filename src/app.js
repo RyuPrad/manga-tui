@@ -48,7 +48,9 @@ export function App({ caps = {}, onViewer, initialRoute = null }) {
   // it (handled outside Ink), else the in-Ink cell reader.
   const openReader = useCallback(
     (payload) => {
-      if (onViewer && (caps.sixel || caps.kitty) && caps.chafa) onViewer(payload);
+      const pixel = onViewer && (caps.sixel || caps.kitty) && caps.chafa
+        && !process.env.MANGA_TUI_NO_PIXEL; // escape hatch → force cell reader
+      if (pixel) onViewer(payload);
       else navigate('reader', payload);
     },
     [onViewer, caps, navigate],
