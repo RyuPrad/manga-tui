@@ -107,7 +107,8 @@ async function renderCmd(target, rest) {
 }
 
 async function runApp() {
-  const { ensureDirs } = await import('./config.js');
+  const { ensureDirs, paths } = await import('./config.js');
+  const { appendFileSync } = await import('node:fs');
   ensureDirs();
 
   if (!process.stdout.isTTY) {
@@ -115,12 +116,26 @@ async function runApp() {
     process.exit(1);
   }
 
+  // Always record crashes (not gated on MANGA_TUI_DEBUG) so failures aren't lost
+  // when the alt-screen is torn down.
+  const logCrash = (label, err) => {
+    try {
+      appendFileSync(paths.logFile, `[${new Date().toISOString()}] ${label}: ${err?.stack || err}\n`);
+    } catch { /* ignore */ }
+  };
+
   // Probe the terminal for pixel-protocol support before Ink grabs stdin.
+  // MANGA_TUI_FORCE_PIXEL skips the probe (useful if detection is wrong, or for
+  // exercising the viewer in a dumb terminal).
   const { detectCapabilities, probeTerminal } = await import('./render/detect.js');
-  const caps = { ...detectCapabilities(), ...(await probeTerminal()) };
+  const probed = process.env.MANGA_TUI_FORCE_PIXEL
+    ? { queried: true, sixel: true, kitty: false }
+    : await probeTerminal();
+  const caps = { ...detectCapabilities(), ...probed };
 
   const { render } = await import('ink');
   const { App } = await import('./app.js');
+  const { runViewer } = await import('./sixel-reader.js'); // pre-import (no mid-loop gap)
 
   // Alternate screen + hidden cursor for a clean, scrollback-free experience.
   const restore = () => process.stdout.write('\x1b[?25h\x1b[?1049l');
@@ -137,16 +152,29 @@ async function runApp() {
       const onViewer = (payload) => {
         viewerRequest = payload;
         // Defer so we don't unmount Ink in the middle of its input dispatch.
-        setImmediate(() => instance.unmount());
+        setImmediate(() => {
+          try { instance.unmount(); } catch (err) { logCrash('unmount failed', err); }
+        });
       };
       instance = render(<App caps={caps} onViewer={onViewer} initialRoute={resumeRoute} />, {
         exitOnCtrlC: true,
       });
-      await instance.waitUntilExit();
+
+      try {
+        await instance.waitUntilExit();
+      } catch (err) {
+        logCrash('ink exited with error', err); // don't let an Ink reject kill us
+      }
+
       if (!viewerRequest) break; // normal quit
 
-      const { runViewer } = await import('./sixel-reader.js');
-      resumeRoute = await runViewer({ ...viewerRequest, caps });
+      process.stdin.resume(); // keep the event loop alive across the handoff
+      try {
+        resumeRoute = await runViewer({ ...viewerRequest, caps });
+      } catch (err) {
+        logCrash('viewer crashed', err);
+        resumeRoute = { name: 'manga', params: { sourceId: viewerRequest.sourceId, manga: viewerRequest.manga } };
+      }
     }
   } finally {
     restore();
@@ -175,8 +203,13 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   process.stdout.write('\x1b[?25h\x1b[?1049l');
+  try {
+    const { appendFileSync } = await import('node:fs');
+    const { paths } = await import('./config.js');
+    appendFileSync(paths.logFile, `[${new Date().toISOString()}] FATAL: ${err?.stack || err}\n`);
+  } catch { /* ignore */ }
   console.error(err);
   process.exit(1);
 });

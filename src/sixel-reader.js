@@ -103,9 +103,11 @@ export async function runViewer({ sourceId, manga, chapters, chapterIndex, start
 
   const prevRaw = stdin.isRaw;
   let onKey;
+  // Ink leaves stdin unref'd after unmount, so a bare `await`-for-keypress won't
+  // keep the process alive — it would exit the moment the first page is drawn.
+  // A ref'd timer holds the event loop open until we're done.
+  const keepAlive = setInterval(() => {}, 1 << 30);
   try {
-    try { stdin.setRawMode(true); } catch { /* ignore */ }
-    stdin.resume();
     await draw();
 
     await new Promise((resolve) => {
@@ -142,9 +144,18 @@ export async function runViewer({ sourceId, manga, chapters, chapterIndex, start
         }
         await draw();
       };
+
+      // Enter raw mode *after* the first draw — Ink's unmount restores cooked
+      // mode on a deferred tick, which would otherwise clobber an earlier call
+      // and leave stdin line-buffered (so single keypresses never arrive).
+      stdin.removeAllListeners('data');
+      try { stdin.setRawMode(true); } catch { /* ignore */ }
+      stdin.resume();
+      stdin.ref?.();
       stdin.on('data', onKey);
     });
   } finally {
+    clearInterval(keepAlive);
     if (onKey) stdin.removeListener('data', onKey);
     try { stdin.setRawMode(prevRaw); } catch { /* ignore */ }
     stdout.write(`${ESC}[2J${ESC}[H${ESC}[0m`);
