@@ -19,11 +19,16 @@ export function List({
   // selection out of range (and there's no cascading setState-in-effect).
   const selected = count ? Math.min(index, count - 1) : 0;
 
+  // Notify the parent of the highlighted item when the selection (or list size)
+  // changes. Keyed on the index + count (primitives) — NOT the `items` array,
+  // whose reference changes every render in callers that rebuild it inline. If
+  // `items` were a dep, a parent whose onHighlight calls setState would loop:
+  // render → new items ref → effect → setState → render → … (max update depth).
   useEffect(() => {
     if (count) onHighlight?.(items[selected], selected);
-    // onHighlight is intentionally omitted: callers pass an inline closure.
+    // items/onHighlight intentionally omitted; see above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, items]);
+  }, [selected, count]);
 
   useInput((input, key) => {
     if (!count) return;
