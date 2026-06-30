@@ -59,13 +59,16 @@ missing, then komado, leaving a native `komado` command on your `PATH`:
 irm https://raw.githubusercontent.com/RyuPrad/komado/main/install.ps1 | iex
 ```
 
-Already have **Node ≥ 20**? Install straight from PowerShell or CMD instead:
+Already have **Node ≥ 20**? Install from CMD (`npm i -g komado`), or from
+PowerShell if your execution policy allows scripts:
 
 ```powershell
 npm i -g komado
 ```
 
-Don't use the `curl … | bash` line on Windows — under **Git Bash** or **WSL** it
+If PowerShell errors with *"running scripts is disabled on this system"*, use the
+one-liner above instead (it works regardless of the execution policy) — or run the
+`npm` line from CMD. Don't use the `curl … | bash` line on Windows — under **Git Bash** or **WSL** it
 installs a launcher that only runs inside that shell, never from CMD/PowerShell.
 
 Uninstall from inside the app — **Settings → Uninstall komado…** (type `uninstall` to

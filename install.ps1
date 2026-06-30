@@ -9,6 +9,10 @@
 # Why npm and not the curl|bash installer? That one writes a *bash* launcher on the
 # Unix PATH (Git Bash / WSL) which CMD and PowerShell can't see. npm installs a real
 # komado.cmd on the Windows PATH, so `komado` just works.
+#
+# Works even under PowerShell's default (Restricted) execution policy: it calls npm
+# via npm.cmd (a batch file, not policy-gated) instead of bare `npm`, which PS would
+# otherwise resolve to npm.ps1 and refuse to load.
 
 function Info($m) { Write-Host "> $m" -ForegroundColor Cyan }
 function Warn($m) { Write-Host "! $m" -ForegroundColor Yellow }
@@ -48,15 +52,34 @@ if ($nodeMajor -lt 20) {
   Fail "Couldn't set up Node.js >= 20 automatically. Install it from https://nodejs.org (or run: winget install OpenJS.NodeJS.LTS), reopen your terminal, then re-run this installer."
   return
 }
-if (-not (Have npm)) {
-  Fail "Node is installed but npm isn't on PATH yet. Close and reopen your terminal, then re-run this command."
+
+# Call npm via its .cmd shim. Bare `npm` in PowerShell resolves to npm.ps1, which
+# the default Restricted execution policy refuses to load - and the thrown error
+# leaves $LASTEXITCODE stale, so a `npm install` that never ran would otherwise
+# look like success (https://github.com/RyuPrad/komado). npm.cmd is a batch file
+# (not policy-gated) and always sets a reliable exit code.
+$npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
+if (-not $npm) {
+  Fail "Node is installed but npm.cmd isn't on PATH yet. Close and reopen your terminal, then re-run this command."
   return
 }
 
 Info "Installing komado globally (npm i -g komado) ..."
-npm install -g komado
+& $npm install -g komado
 if ($LASTEXITCODE -ne 0) {
   Fail "npm install failed - see the npm output above."
+  return
+}
+
+# Trust presence, not just exit codes: confirm `komado` actually landed on PATH
+# before claiming success. Catches the "npm global bin not on PATH yet" case too.
+Sync-Path
+if (-not (Have komado)) {
+  Write-Host ""
+  Fail "npm finished, but 'komado' isn't on your PATH."
+  Write-Host "  This usually means npm's global bin just needs a PATH refresh:" -ForegroundColor Yellow
+  Write-Host "  open a NEW terminal and run 'komado'." -ForegroundColor Yellow
+  Write-Host "  (If it's still missing, npm's global prefix is: $(& $npm config get prefix))" -ForegroundColor DarkGray
   return
 }
 
