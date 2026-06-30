@@ -52,23 +52,29 @@ Then just type **`komado`**. Re-run that same command any time to update. It nee
 `git`, **Node ≥ 20**, and `npm`; it installs to `~/.local/share/komado` with the
 launcher in `~/.local/bin` (override via `KOMADO_APP_DIR` / `KOMADO_BIN_DIR`).
 
-**Windows** — the PowerShell one-liner installs Node.js for you (via `winget`) if it's
-missing, then komado, leaving a native `komado` command on your `PATH`:
+**Windows** — one line installs Node.js for you (via `winget`) if it's missing,
+then komado, leaving a native `komado` command on your `PATH`. Works from **both
+CMD and PowerShell**, and ignores the execution policy either way:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/RyuPrad/komado/main/install.ps1 | iex"
+```
+
+Prefer the native syntax? In **PowerShell**:
 
 ```powershell
 irm https://raw.githubusercontent.com/RyuPrad/komado/main/install.ps1 | iex
 ```
 
-Already have **Node ≥ 20**? Install from CMD (`npm i -g komado`), or from
-PowerShell if your execution policy allows scripts:
+Already have **Node ≥ 20**? `npm i -g komado` works from either shell — CMD runs
+npm's `.cmd` shim directly, and PowerShell does too if your execution policy
+allows scripts.
 
-```powershell
-npm i -g komado
-```
+> Note: the short `irm … | iex` form is PowerShell-only — in **CMD** it prints
+> `'irm' is not recognized`. Use the longer one-liner above (which works in both),
+> or run `npm i -g komado` directly.
 
-If PowerShell errors with *"running scripts is disabled on this system"*, use the
-one-liner above instead (it works regardless of the execution policy) — or run the
-`npm` line from CMD. Don't use the `curl … | bash` line on Windows — under **Git Bash** or **WSL** it
+Don't use the `curl … | bash` line on Windows — under **Git Bash** or **WSL** it
 installs a launcher that only runs inside that shell, never from CMD/PowerShell.
 
 Uninstall from inside the app — **Settings → Uninstall komado…** (type `uninstall` to
