@@ -27,4 +27,26 @@ describe('SettingsScreen', () => {
     expect(frame).toContain('Renderer');
     expect(frame).toContain('Settings');
   });
+
+  it('shows the type-to-confirm prompt when Uninstall is selected', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { lastFrame, stdin, unmount } = render(
+      <UIContext.Provider value={ctx}>
+        <SettingsScreen />
+      </UIContext.Provider>,
+    );
+    await sleep(80);
+    stdin.write('G');   // jump to the last row — "Uninstall komado…"
+    await sleep(30);
+    stdin.write('\r');  // select it → confirmation (does NOT delete anything)
+    await sleep(80);
+    const frame = lastFrame();
+    const errors = errSpy.mock.calls.map((c) => String(c[0]));
+    unmount();
+    errSpy.mockRestore();
+
+    expect(errors.some((m) => /Maximum update depth/.test(m))).toBe(false);
+    expect(frame).toContain('Uninstall komado');
+    expect(frame).toContain('to confirm');
+  });
 });

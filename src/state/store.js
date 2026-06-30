@@ -11,8 +11,18 @@ function readJson(file, fallback) {
   }
 }
 
+// While the app is uninstalling itself, every writer no-ops so a pending debounced
+// save (or the flushProgress() that quit() runs) can't recreate the data directory
+// we just deleted. Set once, never unset — the process is on its way out.
+let persistenceDisabled = false;
+export function disablePersistence() {
+  persistenceDisabled = true;
+  clearTimeout(saveTimer);
+}
+
 // Write-to-temp + rename so a crash mid-write never corrupts the file.
 function writeJsonAtomic(file, data) {
+  if (persistenceDisabled) return;
   ensureDirs();
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
@@ -42,6 +52,7 @@ function loadProgress() {
 // Debounced save — the reader updates progress on every page turn, so coalesce.
 let saveTimer = null;
 function scheduleSave() {
+  if (persistenceDisabled) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => writeJsonAtomic(paths.progressFile, progress), 400);
   saveTimer.unref?.();
@@ -68,6 +79,7 @@ export function flushProgress() {
 // never written to disk. File is 0600 since it holds a long-lived secret.
 let credentials = null;
 function writeCredentialsAtomic(data) {
+  if (persistenceDisabled) return;
   ensureDirs();
   const file = paths.credentialsFile;
   const tmp = `${file}.${process.pid}.tmp`;

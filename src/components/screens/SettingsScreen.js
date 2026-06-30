@@ -9,6 +9,7 @@ import { detectCapabilities } from '../../render/detect.js';
 import { List } from '../List.js';
 import { Header, KeyHints } from '../ui.js';
 import { truncate } from '../../lib/text.js';
+import { performUninstall, uninstallTargets, displayPath, formatUninstallSummary } from '../../uninstall.js';
 
 const RENDERERS = ['auto', 'halfblock', 'chafa'];
 const RATING_PRESETS = [
@@ -50,6 +51,7 @@ export function SettingsScreen() {
     ...cfg.localLibraryPaths.map((p, i) => ({
       id: `path:${i}`, kind: 'path', pathIndex: i, label: `Library: ${truncate(p, 48)}`, value: 'd to remove',
     })),
+    { id: 'uninstall', kind: 'danger', label: 'Uninstall komado…', value: 'removes the app + all data' },
   ];
 
   const activate = (item) => {
@@ -73,12 +75,29 @@ export function SettingsScreen() {
       case 'action':
         setDraft('');
         return setEditing('addPath');
+      case 'danger':
+        setDraft('');
+        return setEditing('uninstall');
       default:
         return undefined;
     }
   };
 
   const submitEdit = () => {
+    if (editing === 'uninstall') {
+      // Only the exact word commits. performUninstall() disables persistence and
+      // deletes everything; we register a goodbye to print AFTER Ink tears the
+      // alt-screen down (cli.js's restore runs first), then quit.
+      if (draft.trim().toLowerCase() === 'uninstall') {
+        const results = performUninstall();
+        process.once('exit', () => process.stdout.write(`\n${formatUninstallSummary(results)}\n`));
+        ui.exit();
+        return;
+      }
+      setEditing(null);
+      setDraft('');
+      return;
+    }
     if (editing === 'language') {
       save({ language: draft.trim() || 'en' });
     } else if (editing === 'addPath' && draft.trim()) {
@@ -110,7 +129,25 @@ export function SettingsScreen() {
         subtitle={`chafa: ${caps.chafa ? caps.chafaVersion : 'not installed'} · backend: ${caps.chafa ? 'chafa-symbols' : 'half-block'}`}
       />
 
-      {editing ? (
+      {editing === 'uninstall' ? (
+        <Box flexDirection="column">
+          <Text color="redBright" bold>{'⚠  Uninstall komado'}</Text>
+          <Text>This permanently deletes:</Text>
+          {uninstallTargets().map((t) => (
+            <Text key={t.path} color="red">
+              {`  • ${displayPath(t.path)}`}
+              <Text dimColor>{`  — ${t.label}`}</Text>
+            </Text>
+          ))}
+          <Box marginTop={1}>
+            <Text>{'Type '}</Text>
+            <Text color="redBright" bold>uninstall</Text>
+            <Text>{' to confirm: '}</Text>
+            <TextInput value={draft} onChange={setDraft} onSubmit={submitEdit} focus={true} />
+          </Box>
+          <KeyHints hints={[['enter', 'confirm'], ['esc', 'cancel']]} />
+        </Box>
+      ) : editing ? (
         <Box flexDirection="column">
           <Text color="cyanBright">
             {editing === 'addPath' ? 'New library path (folder of manga / CBZ):' : 'Language code (e.g. en, fr, ja):'}
@@ -131,7 +168,7 @@ export function SettingsScreen() {
             onHighlight={(it) => setHighlighted(it)}
             renderItem={(it, active) => (
               <Box key={it.id} justifyContent="space-between">
-                <Text inverse={active} color={active ? 'cyanBright' : it.kind === 'path' ? 'blue' : undefined}>
+                <Text inverse={active} color={active ? 'cyanBright' : it.kind === 'danger' ? 'red' : it.kind === 'path' ? 'blue' : undefined}>
                   {` ${it.label} `}
                 </Text>
                 {it.value ? <Text dimColor>{it.value}</Text> : null}
